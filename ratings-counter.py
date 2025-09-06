@@ -1,12 +1,14 @@
 # pylint: disable=C0103
 """Count ratings from existing ml-100k data"""
 import collections
+import os
 from pyspark import SparkConf, SparkContext
 
+Data = os.getenv("Data", ".")
 conf = SparkConf().setMaster("local").setAppName("RatingsHistogram")
 sc = SparkContext(conf = conf)
 
-lines = sc.textFile("C:/Users/arjun/Python/SparkCourse/ml-100k/u.data")
+lines = sc.textFile(f"{Data}/ml-100k/u.data")
 ratings = lines.map(lambda x: x.split()[2])
 result = ratings.countByValue()
 

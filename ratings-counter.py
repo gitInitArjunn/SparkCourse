@@ -1,3 +1,4 @@
+# pylint: disable=C0103
 """Count ratings from existing ml-100k data"""
 import collections
 from pyspark import SparkConf, SparkContext

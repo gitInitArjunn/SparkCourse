@@ -4,10 +4,11 @@ from pyspark import SparkConf, SparkContext
 Data = os.getenv("Data", ".")
 
 def parse(line):
+    """Parse given line to retrieve customer id and value of customer order"""
     fields = line.split(',')
-    customerID = fields[0]
+    customer_id = int(fields[0])
     value = float(fields[1])  # Convert to float
-    return (customerID, value)
+    return (customer_id, value)
 
 conf = SparkConf().setMaster("local").setAppName("TotalSpentByCustomer")
 sc = SparkContext(conf=conf)
@@ -18,5 +19,5 @@ totalByCustomer = splitData.reduceByKey(lambda x, y: x + y).collect()
 
 totalByCustomer = sorted(totalByCustomer, key = lambda x: x[1], reverse = True)
 
-for customerID, total in totalByCustomer:
-    print(f"{customerID}\t{total}")
+for identity, total in totalByCustomer:
+    print(f"{identity}\t{total:.2f}")

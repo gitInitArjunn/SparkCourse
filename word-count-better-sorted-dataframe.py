@@ -14,7 +14,7 @@ wordCounts = (
     .select(F.lower(F.col("word")).alias("word"))
     .groupBy("word")
     .count()
-    .orderBy(F.desc("count"))
+    .orderBy(F.asc("count"))
 )
 
 # Show top 100 words

@@ -1,25 +1,28 @@
 from pyspark.sql import SparkSession
-from pyspark.sql import Row
-from pyspark.sql import functions as func
+from pyspark.sql import functions as F
 
+# Initialize Spark session
 spark = SparkSession.builder.appName("FriendsByAge").getOrCreate()
 
-lines = spark.read.option("header", "true").option("inferSchema", "true").csv("Data/fakefriends-header.csv")
+# Load dataset
+df = (
+    spark.read.option("header", True)
+    .option("inferSchema", True)
+    .csv("file:///SparkCourse/fakefriends-header.csv")
+)
 
-# Select only age and numFriends columns
-friendsByAge = lines.select("age", "friends")
+# Select only relevant columns
+friendsByAge = df.select("age", "friends")
 
-# From friendsByAge we group by "age" and then compute average
-friendsByAge.groupBy("age").avg("friends").show()
+# Calculate average number of friends by age
+avg_friends_by_age = (
+    friendsByAge.groupBy("age")
+    .agg(F.round(F.avg("friends"), 2).alias("avg_friends"))
+    .orderBy("age")
+)
 
-# Sorted
-friendsByAge.groupBy("age").avg("friends").sort("age").show()
+# Show results
+avg_friends_by_age.show()
 
-# Formatted more nicely
-friendsByAge.groupBy("age").agg(func.round(func.avg("friends"), 2)).sort("age").show()
-
-# With a custom column name
-friendsByAge.groupBy("age").agg(func.round(func.avg("friends"), 2)
-  .alias("friends_avg")).sort("age").show()
-
+# Stop Spark session
 spark.stop()

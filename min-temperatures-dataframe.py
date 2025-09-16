@@ -1,40 +1,36 @@
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as func
+from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
 
 spark = SparkSession.builder.appName("MinTemperatures").getOrCreate()
 
-schema = StructType([ \
-                     StructField("stationID", StringType(), True), \
-                     StructField("date", IntegerType(), True), \
-                     StructField("measure_type", StringType(), True), \
-                     StructField("temperature", FloatType(), True)])
+# Define schema
+schema = StructType([
+    StructField("stationID", StringType(), True),
+    StructField("date", IntegerType(), True),
+    StructField("measure_type", StringType(), True),
+    StructField("temperature", FloatType(), True)
+])
 
-# // Read the file as dataframe
+# Read CSV with schema
 df = spark.read.schema(schema).csv("Data/1800.csv")
-df.printSchema()
 
-# Filter out all but TMIN entries
-minTemps = df.filter(df.measure_type == "TMIN")
+# Compute min temperature per station and convert to Fahrenheit
+minTempsByStationF = (
+    df.filter(F.col("measure_type") == "TMIN")
+      .groupBy("stationID")
+      .agg(F.min("temperature").alias("min_temp_c"))
+      .withColumn("temperature_F", F.round(F.col("min_temp_c") * 0.1 * 9/5 + 32, 2))
+      .select("stationID", "temperature_F")
+      .sort("temperature_F")
+)
 
-# Select only stationID and temperature
-stationTemps = minTemps.select("stationID", "temperature")
+# Show results
+minTempsByStationF.show(truncate=False)
 
-# Aggregate to find minimum temperature for every station
-minTempsByStation = stationTemps.groupBy("stationID").min("temperature")
-minTempsByStation.show()
-
-# Convert temperature to fahrenheit and sort the dataset
-minTempsByStationF = minTempsByStation.withColumn("temperature",
-                                                  func.round(func.col("min(temperature)") * 0.1 * (9.0 / 5.0) + 32.0, 2))\
-                                                  .select("stationID", "temperature").sort("temperature")
-                                                  
-# Collect, format, and print the results
+# Optional: collect if you really need driver-side processing
 results = minTempsByStationF.collect()
+for r in results:
+    print(f"{r['stationID']}\t{r['temperature_F']:.2f}F")
 
-for result in results:
-    print(result[0] + "\t{:.2f}F".format(result[1]))
-    
 spark.stop()
-
-                                                  

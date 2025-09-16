@@ -8,7 +8,7 @@ spark = SparkSession.builder.appName("FriendsByAge").getOrCreate()
 df = (
     spark.read.option("header", True)
     .option("inferSchema", True)
-    .csv("file:///SparkCourse/fakefriends-header.csv")
+    .csv("Data/fakefriends-header.csv")
 )
 
 # Select only relevant columns

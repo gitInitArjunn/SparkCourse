@@ -1,23 +1,23 @@
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as func
+from pyspark.sql import functions as F
 
 spark = SparkSession.builder.appName("WordCount").getOrCreate()
 
-# Read each line of my book into a dataframe
+# Read input file
 inputDF = spark.read.text("Data/book.txt")
 
-# Split using a regular expression that extracts words
-words = inputDF.select(func.explode(func.split(inputDF.value, "\\W+")).alias("word"))
-wordsWithoutEmptyString = words.filter(words.word != "")
+# Split -> Filter -> Lowercase -> Count -> Sort (all chained)
+wordCounts = (
+    inputDF
+    .select(F.explode(F.split(F.col("value"), "\\W+")).alias("word"))
+    .filter(F.col("word") != "")
+    .select(F.lower(F.col("word")).alias("word"))
+    .groupBy("word")
+    .count()
+    .orderBy(F.desc("count"))
+)
 
-# Normalize everything to lowercase
-lowercaseWords = wordsWithoutEmptyString.select(func.lower(wordsWithoutEmptyString.word).alias("word"))
+# Show top 100 words
+wordCounts.show(100, truncate=False)
 
-# Count up the occurrences of each word
-wordCounts = lowercaseWords.groupBy("word").count()
-
-# Sort by counts
-wordCountsSorted = wordCounts.sort("count")
-
-# Show the results.
-wordCountsSorted.show(wordCountsSorted.count())
+spark.stop()

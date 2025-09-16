@@ -5,11 +5,8 @@ from pyspark.sql import functions as F
 spark = SparkSession.builder.appName("FriendsByAge").getOrCreate()
 
 # Load dataset
-df = (
-    spark.read.option("header", True)
-    .option("inferSchema", True)
-    .csv("Data/fakefriends-header.csv")
-)
+df = spark.read.csv("Data/fakefriends-header.csv", header = True, inferSchema = True)
+
 
 # Select only relevant columns
 friendsByAge = df.select("age", "friends")

@@ -18,9 +18,9 @@ connections = lines.withColumn("id", func.split(func.trim(func.col("value")), " 
     .withColumn("connections", func.size(func.split(func.trim(func.col("value")), " ")) - 1) \
     .groupBy("id").agg(func.sum("connections").alias("connections"))
 
-top10 = connections.sort(func.col("connections").desc()).limit(10)
+# top10 = connections.sort(func.col("connections").desc()).limit(10)
 
-top10WithNames = top10.join(names, top10.id == names.id, "inner") \
+top10WithNames = connections.join(names, connections.id == names.id, "inner") \
                       .select("name", "connections") \
                       .orderBy(func.col("connections").desc())
 

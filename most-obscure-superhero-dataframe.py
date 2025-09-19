@@ -18,8 +18,10 @@ connections = lines.withColumn("id", func.split(func.trim(func.col("value")), " 
     .withColumn("connections", func.size(func.split(func.trim(func.col("value")), " ")) - 1) \
     .groupBy("id").agg(func.sum("connections").alias("connections"))
 
-mostObscure = connections.sort(func.col("connections").asc()).first()
+bottom10 = connections.sort(func.col("connections").asc()).limit(10)
 
-mostObscureName = names.filter(func.col("id") == mostObscure[0]).select("name").first()
+bottom10WithNames = bottom10.join(names, bottom10.id == names.id, "inner") \
+                      .select("name", "connections") \
+                      .orderBy(func.col("connections").asc())
 
-print(mostObscureName[0] + " is the most obscure superhero with " + str(mostObscure[1]) + " co-appearances.")
+bottom10WithNames.show(10, truncate=False)

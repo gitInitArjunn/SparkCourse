@@ -1,3 +1,8 @@
+"""
+Calculate similarity between a specific movies and other movies in the dataset
+To run this program, run spark-submit [file-name] [movie-id] 
+"""
+
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as func
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType
@@ -102,8 +107,7 @@ if (len(sys.argv) > 1):
         # Display the similarity result that isn't the movie we're looking at
         similarMovieID = result.movie1
         if (similarMovieID == movieID):
-          similarMovieID = result.movie2
+            similarMovieID = result.movie2
         
         print(getMovieName(movieNames, similarMovieID) + "\tscore: " \
               + str(result.score) + "\tstrength: " + str(result.numPairs))
-        

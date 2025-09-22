@@ -1,54 +1,45 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, IntegerType, LongType
 from pyspark.ml.recommendation import ALS
-import sys
-import codecs
 
-def loadMovieNames():
+def load_movie_names(path="Data/ml-100k/u.ITEM"):
+    import codecs
     movieNames = {}
-    # CHANGE THIS TO THE PATH TO YOUR u.ITEM FILE:
-    with codecs.open("Data/ml-100k/u.ITEM", "r", encoding='ISO-8859-1', errors='ignore') as f:
+    with codecs.open(path, "r", encoding='ISO-8859-1', errors='ignore') as f:
         for line in f:
             fields = line.split('|')
             movieNames[int(fields[0])] = fields[1]
     return movieNames
 
+def get_user_recommendations(model, userID, names, num_recs=10):
+    from pyspark.sql.types import StructType, StructField, IntegerType
+    user_df = spark.createDataFrame([[userID]], StructType([StructField("userID", IntegerType(), True)]))
+    recs = model.recommendForUserSubset(user_df, num_recs).collect()
+    
+    print(f"Top {num_recs} recommendations for user ID {userID}:")
+    for userRecs in recs:
+        for rec in userRecs.recommendations:
+            movie = names[rec.movieID]
+            print(f"{movie}: {rec.rating:.2f}")
 
 spark = SparkSession.builder.appName("ALSExample").getOrCreate()
-    
-moviesSchema = StructType([ \
-                     StructField("userID", IntegerType(), True), \
-                     StructField("movieID", IntegerType(), True), \
-                     StructField("rating", IntegerType(), True), \
-                     StructField("timestamp", LongType(), True)])
-    
-names = loadMovieNames()
-    
-ratings = spark.read.option("sep", "\t").schema(moviesSchema) \
-    .csv("Data/ml-100k/u.data")
-    
-print("Training recommendation model...")
 
-als = ALS().setMaxIter(5).setRegParam(0.01).setUserCol("userID").setItemCol("movieID") \
-    .setRatingCol("rating")
-    
+moviesSchema = StructType([
+    StructField("userID", IntegerType(), True),
+    StructField("movieID", IntegerType(), True),
+    StructField("rating", IntegerType(), True),
+    StructField("timestamp", LongType(), True)
+])
+
+names = load_movie_names()
+ratings = spark.read.option("sep", "\t").schema(moviesSchema).csv("Data/ml-100k/u.data")
+
+print("Training recommendation model...")
+als = ALS(maxIter=5, regParam=0.01, rank=10,
+          userCol="userID", itemCol="movieID", ratingCol="rating",
+          coldStartStrategy="drop")
+
 model = als.fit(ratings)
 
-# Manually construct a dataframe of the user ID's we want recs for
-userID = int(sys.argv[1])
-userSchema = StructType([StructField("userID", IntegerType(), True)])
-users = spark.createDataFrame([[userID,]], userSchema)
-
-recommendations = model.recommendForUserSubset(users, 10).collect()
-
-print("Top 10 recommendations for user ID " + str(userID))
-
-for userRecs in recommendations:
-    myRecs = userRecs[1]  #userRecs is (userID, [Row(movieId, rating), Row(movieID, rating)...])
-    for rec in myRecs: #my Recs is just the column of recs for the user
-        movie = rec[0] #For each rec in the list, extract the movie ID and rating
-        rating = rec[1]
-        movieName = names[movie]
-        print(movieName + str(rating))
-        
-
+# Example usage for user 50
+get_user_recommendations(model, 50, names, 10)

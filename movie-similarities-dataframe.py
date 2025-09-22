@@ -1,113 +1,95 @@
-"""
-Calculate similarity between a specific movies and other movies in the dataset
-To run this program, run spark-submit [file-name] [movie-id] 
-"""
-
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as func
+from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType
-import sys
 
-def computeCosineSimilarity(spark, data):
-    # Compute xx, xy and yy columns
-    pairScores = data \
-      .withColumn("xx", func.col("rating1") * func.col("rating1")) \
-      .withColumn("yy", func.col("rating2") * func.col("rating2")) \
-      .withColumn("xy", func.col("rating1") * func.col("rating2")) 
+# ---------------------
+# Cosine Similarity
+# ---------------------
+def computeCosineSimilarity(data):
+    pairScores = data.withColumn("xx", F.col("rating1") * F.col("rating1")) \
+                     .withColumn("yy", F.col("rating2") * F.col("rating2")) \
+                     .withColumn("xy", F.col("rating1") * F.col("rating2"))
 
-    # Compute numerator, denominator and numPairs columns
-    calculateSimilarity = pairScores \
-      .groupBy("movie1", "movie2") \
-      .agg( \
-        func.sum(func.col("xy")).alias("numerator"), \
-        (func.sqrt(func.sum(func.col("xx"))) * func.sqrt(func.sum(func.col("yy")))).alias("denominator"), \
-        func.count(func.col("xy")).alias("numPairs")
-      )
+    similarity = pairScores.groupBy("movie1", "movie2") \
+        .agg(
+            F.sum("xy").alias("numerator"),
+            (F.sqrt(F.sum("xx")) * F.sqrt(F.sum("yy"))).alias("denominator"),
+            F.count("xy").alias("numPairs")
+        ) \
+        .withColumn("score",
+            F.when(F.col("denominator") != 0, F.col("numerator") / F.col("denominator"))
+             .otherwise(0)
+        ) \
+        .select("movie1", "movie2", "score", "numPairs")
 
-    # Calculate score and select only needed columns (movie1, movie2, score, numPairs)
-    result = calculateSimilarity \
-      .withColumn("score", \
-        func.when(func.col("denominator") != 0, func.col("numerator") / func.col("denominator")) \
-          .otherwise(0) \
-      ).select("movie1", "movie2", "score", "numPairs")
-
-    return result
-
-# Get movie name by given movie id 
-def getMovieName(movieNames, movieId):
-    result = movieNames.filter(func.col("movieID") == movieId) \
-        .select("movieTitle").collect()[0]
-
-    return result[0]
+    return similarity
 
 
+# ---------------------
+# Main Script
+# ---------------------
 spark = SparkSession.builder.appName("MovieSimilarities").master("local[*]").getOrCreate()
 
-movieNamesSchema = StructType([ \
-                               StructField("movieID", IntegerType(), True), \
-                               StructField("movieTitle", StringType(), True) \
-                               ])
-    
-moviesSchema = StructType([ \
-                     StructField("userID", IntegerType(), True), \
-                     StructField("movieID", IntegerType(), True), \
-                     StructField("rating", IntegerType(), True), \
-                     StructField("timestamp", LongType(), True)])
-    
-    
-# Create a broadcast dataset of movieID and movieTitle.
-# Apply ISO-885901 charset
-movieNames = spark.read \
-      .option("sep", "|") \
-      .option("charset", "ISO-8859-1") \
-      .schema(movieNamesSchema) \
-      .csv("Data/ml-100k/u.item")
+# Schemas
+movieNamesSchema = StructType([
+    StructField("movieID", IntegerType(), True),
+    StructField("movieTitle", StringType(), True)
+])
 
-# Load up movie data as dataset
-movies = spark.read \
-      .option("sep", "\t") \
-      .schema(moviesSchema) \
-      .csv("Data/ml-100k/u.data")
+moviesSchema = StructType([
+    StructField("userID", IntegerType(), True),
+    StructField("movieID", IntegerType(), True),
+    StructField("rating", IntegerType(), True),
+    StructField("timestamp", LongType(), True)
+])
+
+# Load datasets
+movieNames = spark.read.option("sep", "|").option("charset", "ISO-8859-1") \
+    .schema(movieNamesSchema).csv("Data/ml-100k/u.item")
+
+movies = spark.read.option("sep", "\t").schema(moviesSchema).csv("Data/ml-100k/u.data")
+
+ratings = movies.select("userID", "movieID", "rating")
+
+# Build movie pairs
+moviePairs = ratings.alias("r1") \
+    .join(ratings.alias("r2"),
+          (F.col("r1.userID") == F.col("r2.userID")) &
+          (F.col("r1.movieID") < F.col("r2.movieID"))) \
+    .select(
+        F.col("r1.movieID").alias("movie1"),
+        F.col("r2.movieID").alias("movie2"),
+        F.col("r1.rating").alias("rating1"),
+        F.col("r2.rating").alias("rating2")
+    )
+
+# Compute similarities
+moviePairSimilarities = computeCosineSimilarity(moviePairs).cache()
+
+# ---------------------
+# Example Query
+# ---------------------
+def getSimilarMovies(movieID, scoreThreshold=0.97, coOccurrenceThreshold=50, topN=10):
+    filtered = moviePairSimilarities.filter(
+        ((F.col("movie1") == movieID) | (F.col("movie2") == movieID)) &
+        (F.col("score") > scoreThreshold) &
+        (F.col("numPairs") > coOccurrenceThreshold)
+    )
+    results = filtered.orderBy(F.col("score").desc()).limit(topN)
+
+    # Bring movie names in via join (instead of collect lookups)
+    names = movieNames.select("movieID", "movieTitle")
+    resultsWithNames = results \
+        .join(names, results.movie1 == names.movieID, "left") \
+        .withColumnRenamed("movieTitle", "movie1Title") \
+        .drop("movieID") \
+        .join(names, results.movie2 == names.movieID, "left") \
+        .withColumnRenamed("movieTitle", "movie2Title") \
+        .drop("movieID")
+
+    return resultsWithNames
 
 
-ratings = movies.select("userId", "movieId", "rating")
-
-# Emit every movie rated together by the same user.
-# Self-join to find every combination.
-# Select movie pairs and rating pairs
-moviePairs = ratings.alias("ratings1") \
-      .join(ratings.alias("ratings2"), (func.col("ratings1.userId") == func.col("ratings2.userId")) \
-            & (func.col("ratings1.movieId") < func.col("ratings2.movieId"))) \
-        .select(func.col("ratings1.movieId").alias("movie1"), \
-        func.col("ratings2.movieId").alias("movie2"), \
-        func.col("ratings1.rating").alias("rating1"), \
-        func.col("ratings2.rating").alias("rating2"))
-
-
-moviePairSimilarities = computeCosineSimilarity(spark, moviePairs).cache()
-
-if (len(sys.argv) > 1):
-    scoreThreshold = 0.97
-    coOccurrenceThreshold = 50.0
-
-    movieID = int(sys.argv[1])
-
-    # Filter for movies with this sim that are "good" as defined by
-    # our quality thresholds above
-    filteredResults = moviePairSimilarities.filter( \
-        ((func.col("movie1") == movieID) | (func.col("movie2") == movieID)) & \
-          (func.col("score") > scoreThreshold) & (func.col("numPairs") > coOccurrenceThreshold))
-
-    # Sort by quality score.
-    results = filteredResults.sort(func.col("score").desc()).take(10)
-    
-    print ("Top 10 similar movies for " + getMovieName(movieNames, movieID))
-    
-    for result in results:
-        # Display the similarity result that isn't the movie we're looking at
-        similarMovieID = result.movie1
-        if (similarMovieID == movieID):
-            similarMovieID = result.movie2
-        
-        print(getMovieName(movieNames, similarMovieID) + "\tscore: " \
-              + str(result.score) + "\tstrength: " + str(result.numPairs))
+# Example usage
+movieID = 50  # just hardcode or pass dynamically
+similarMovies = getSimilarMovies(movieID)
+similarMovies.show(truncate=False)

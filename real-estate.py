@@ -1,51 +1,45 @@
-from __future__ import print_function
-
-from pyspark.ml.regression import DecisionTreeRegressor
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import DecisionTreeRegressor
+from pyspark.ml.evaluation import RegressionEvaluator
 
-if __name__ == "__main__":
+def main():
+    spark = SparkSession.builder.appName("DecisionTreeRegression").getOrCreate()
 
-    # Create a SparkSession (Note, the config section is only for Windows!)
-    spark = SparkSession.builder.appName("DecisionTree").getOrCreate()
-
-    
-    # Load up data as dataframe
+    # Load data
     data = spark.read.option("header", "true").option("inferSchema", "true")\
         .csv("Data/realestate.csv")
 
-    assembler = VectorAssembler().setInputCols(["HouseAge", "DistanceToMRT", \
-                               "NumberConvenienceStores"]).setOutputCol("features")
-    
+    # Assemble features
+    feature_cols = ["HouseAge", "DistanceToMRT", "NumberConvenienceStores"]
+    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
     df = assembler.transform(data).select("PriceOfUnitArea", "features")
 
-    # Let's split our data into training data and testing data
-    trainTest = df.randomSplit([0.5, 0.5])
-    trainingDF = trainTest[0]
-    testDF = trainTest[1]
+    # Train-test split
+    trainDF, testDF = df.randomSplit([0.7, 0.3], seed=42)
 
-    # Now create our decision tree
-    dtr = DecisionTreeRegressor().setFeaturesCol("features").setLabelCol("PriceOfUnitArea")
+    # Decision Tree Regressor
+    dtr = DecisionTreeRegressor(featuresCol="features", labelCol="PriceOfUnitArea", maxDepth=5)
+    model = dtr.fit(trainDF)
 
-    # Train the model using our training data
-    model = dtr.fit(trainingDF)
+    # Predictions
+    predictions = model.transform(testDF)
+    predictions.select("PriceOfUnitArea", "prediction").show(20)
 
-    # Now see if we can predict values in our test data.
-    # Generate predictions using our decision tree model for all features in our
-    # test dataframe:
-    fullPredictions = model.transform(testDF).cache()
+    # Evaluate
+    evaluator = RegressionEvaluator(
+        labelCol="PriceOfUnitArea",
+        predictionCol="prediction",
+        metricName="rmse"
+    )
+    rmse = evaluator.evaluate(predictions)
+    r2 = evaluator.evaluate(predictions, {evaluator.metricName: "r2"})
+    print(f"RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
-    # Extract the predictions and the "known" correct labels.
-    predictions = fullPredictions.select("prediction").rdd.map(lambda x: x[0])
-    labels = fullPredictions.select("PriceOfUnitArea").rdd.map(lambda x: x[0])
+    # Inspect tree
+    print(model.toDebugString)
 
-    # Zip them together
-    predictionAndLabel = predictions.zip(labels).collect()
-
-    # Print out the predicted and actual values for each point
-    for prediction in predictionAndLabel:
-      print(prediction)
-
-
-    # Stop the session
     spark.stop()
+
+if __name__ == "__main__":
+    main()

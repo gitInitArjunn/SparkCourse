@@ -26,20 +26,33 @@ def main():
     predictions = model.transform(testDF)
     predictions.select("PriceOfUnitArea", "prediction").show(20)
 
-    # Evaluate
-    evaluator = RegressionEvaluator(
-        labelCol="PriceOfUnitArea",
-        predictionCol="prediction",
+    # RMSE (Root Mean Squared Error)
+    evaluator_rmse = RegressionEvaluator(
+        labelCol="PriceOfUnitArea", 
+        predictionCol="prediction", 
         metricName="rmse"
     )
-    rmse = evaluator.evaluate(predictions)
-    r2 = evaluator.evaluate(predictions, {evaluator.metricName: "r2"})
-    print(f"RMSE: {rmse:.4f}, R²: {r2:.4f}")
+    rmse = evaluator_rmse.evaluate(predictions)
 
-    # Inspect tree
-    print(model.toDebugString)
+    # R² (coefficient of determination)
+    evaluator_r2 = RegressionEvaluator(
+        labelCol="PriceOfUnitArea", 
+        predictionCol="prediction", 
+        metricName="r2"
+    )
+    r2 = evaluator_r2.evaluate(predictions)
 
-    spark.stop()
+    # MAE (Mean Absolute Error)
+    evaluator_mae = RegressionEvaluator(
+        labelCol="PriceOfUnitArea", 
+        predictionCol="prediction", 
+        metricName="mae"
+    )
+    mae = evaluator_mae.evaluate(predictions)
+
+    print(f"RMSE: {rmse:.4f}")
+    print(f"R²: {r2:.4f}")
+    print(f"MAE: {mae:.4f}")
 
 if __name__ == "__main__":
     main()
